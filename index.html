@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>gametest2 · 1944 map</title>
+<style>
+  body{margin:0;background:#0b1d33;color:#fff;font-family:system-ui,sans-serif;display:flex;flex-direction:column;align-items:center}
+  #view{width:min(98vw,1400px);aspect-ratio:2/1.05;margin-top:10px;border:3px solid #fff3;border-radius:6px;overflow:hidden;background:#2f6fa8}
+  svg{width:100%;height:100%;display:block;cursor:grab}
+  .land{stroke:#1b1b1b;stroke-width:.6}
+  .land:hover{filter:brightness(1.25)}
+  .sz{fill:none;stroke:#ffffff55;stroke-width:.7;stroke-dasharray:3 3}
+  .szn{fill:#ffffffaa;font-size:9px;font-weight:700;text-anchor:middle;dominant-baseline:middle;pointer-events:none}
+  .ic{font-size:14px;text-anchor:middle;dominant-baseline:middle;pointer-events:none}
+  .legend{display:flex;flex-wrap:wrap;gap:10px;justify-content:center;margin:12px;font-size:22px}
+  .legend span{display:flex;align-items:center;gap:6px;background:#ffffff14;border-radius:10px;padding:4px 10px}
+  .legend i{width:22px;height:22px;border-radius:5px;display:inline-block;border:2px solid #0008}
+  #tip{position:fixed;pointer-events:none;background:#000c;padding:4px 8px;border-radius:6px;font-size:14px;display:none}
+</style>
+</head>
+<body>
+<div id="view"><svg id="map"></svg></div>
+<div class="legend" id="legend"></div>
+<div id="tip"></div>
+<script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
+<script src="https://cdn.jsdelivr.net/npm/topojson-client@3"></script>
+<script>
+// Powers (summer 1944). Icons only, almost no reading.
+const P = {
+  GER:{c:'#6e6e6e', ic:'⬛', nm:'Germany'},  ITA:{c:'#9a7a4e', ic:'🟫', nm:'Italy'},
+  JPN:{c:'#e3932b', ic:'🟧', nm:'Japan'},    SOV:{c:'#9b3a2a', ic:'🟥', nm:'Soviet Union'},
+  UK:{c:'#cdb57e',  ic:'🟨', nm:'United Kingdom'}, USA:{c:'#5f8f3e', ic:'🟩', nm:'United States'},
+  CHN:{c:'#3f7a68', ic:'🟢', nm:'China'},    FRA:{c:'#3d72b5', ic:'🟦', nm:'Free France'},
+  NEU:{c:'#e4dcbc', ic:'⬜', nm:'Neutral'},
+};
+const OWN = {
+  GER:['Germany','France','Belgium','Netherlands','Luxembourg','Denmark','Norway','Poland','Czechia','Slovakia','Austria','Hungary','Romania','Bulgaria','Serbia','Croatia','Bosnia and Herz.','Slovenia','Montenegro','Kosovo','Macedonia','Albania','Greece','Estonia','Latvia','Lithuania','Finland'],
+  ITA:['Italy'],
+  JPN:['Japan','North Korea','South Korea','Taiwan','Philippines','Indonesia','Malaysia','Brunei','Myanmar','Thailand','Vietnam','Laos','Cambodia','Timor-Leste','Papua New Guinea','Solomon Is.'],
+  SOV:['Russia','Ukraine','Belarus','Moldova','Kazakhstan','Uzbekistan','Turkmenistan','Kyrgyzstan','Tajikistan','Georgia','Armenia','Azerbaijan','Mongolia'],
+  UK:['United Kingdom','Canada','India','Pakistan','Bangladesh','Sri Lanka','Nepal','Bhutan','Australia','New Zealand','South Africa','Egypt','Sudan','S. Sudan','Kenya','Uganda','Tanzania','Zambia','Zimbabwe','Malawi','Botswana','Namibia','Lesotho','eSwatini','Nigeria','Ghana','Sierra Leone','Gambia','Iraq','Iran','Jordan','Israel','Palestine','Kuwait','Qatar','United Arab Emirates','Oman','Yemen','Somalia','Somaliland','Eritrea','Ethiopia','Libya','Cyprus','N. Cyprus','Iceland','Belize','Guyana','Jamaica','Bahamas','Trinidad and Tobago','Fiji','Falkland Is.','Madagascar','Burma'],
+  USA:['United States of America','Mexico','Greenland','Cuba','Puerto Rico','Panama','Brazil','Haiti','Dominican Rep.','Guatemala','Honduras','El Salvador','Nicaragua','Costa Rica','New Caledonia','Vanuatu','Colombia','Venezuela','Suriname'],
+  CHN:['China'],
+  FRA:['Algeria','Morocco','Tunisia','W. Sahara','Mauritania','Senegal','Mali','Niger','Chad','Guinea',"Côte d'Ivoire",'Burkina Faso','Benin','Togo','Cameroon','Gabon','Congo','Central African Rep.','Djibouti','Syria','Lebanon'],
+};
+const owner = {}; for (const k in OWN) for (const n of OWN[k]) owner[n] = k;
+
+const W = 1400, H = 735;
+const svg = d3.select('#map').attr('viewBox', `0 0 ${W} ${H}`);
+const g = svg.append('g');
+const proj = d3.geoMercator().rotate([-20, 0]).center([0, 18]).scale(205).translate([W / 2, H / 2]);
+const path = d3.geoPath(proj);
+const tip = document.getElementById('tip');
+
+d3.json('world.json').then(w => {
+  const countries = topojson.feature(w, w.objects.countries).features.filter(f => f.properties.name !== 'Antarctica' && f.properties.name !== 'Fr. S. Antarctic Lands');
+  const land = topojson.merge(w, w.objects.countries.geometries);
+
+  // sea zones: 20° x 15° boxes, numbered where the box center is open ocean
+  let n = 0;
+  for (let lat = 75; lat > -60; lat -= 15) for (let lon = -160; lon < 200; lon += 20) {
+    const box = {type:'Polygon', coordinates:[[[lon,lat],[lon,lat-15],[lon+20,lat-15],[lon+20,lat],[lon,lat]].map(p => p)]};
+    g.append('path').attr('class','sz').attr('d', path(d3.geoGraticule().extent([[lon,lat-15],[lon+20,lat]]).step([20,15])()));
+    const c = [lon + 10, lat - 7.5];
+    if (!d3.geoContains(land, c)) { const [x, y] = proj(c); g.append('text').attr('class','szn').attr('x',x).attr('y',y).text(++n); }
+  }
+
+  g.selectAll('.land').data(countries).join('path').attr('class','land').attr('d', path)
+    .attr('fill', d => P[owner[d.properties.name] || 'NEU'].c)
+    .on('mousemove', (e, d) => { tip.style.display='block'; tip.style.left=e.clientX+12+'px'; tip.style.top=e.clientY+12+'px';
+      tip.textContent = P[owner[d.properties.name]||'NEU'].ic + ' ' + d.properties.name; })
+    .on('mouseleave', () => tip.style.display='none');
+
+  // capitals ⭐
+  const caps = [['GER',13.4,52.5],['ITA',12.5,41.9],['JPN',139.7,35.7],['SOV',37.6,55.8],['UK',-0.1,51.5],['USA',-77,38.9],['CHN',106.5,29.6],['FRA',3,36.8]];
+  for (const [k, lon, lat] of caps) { const [x, y] = proj([lon, lat]); g.append('text').attr('class','ic').attr('x',x).attr('y',y).text('⭐'); }
+
+  svg.call(d3.zoom().scaleExtent([1, 10]).translateExtent([[0,0],[W,H]]).on('zoom', e => g.attr('transform', e.transform)));
+});
+
+document.getElementById('legend').innerHTML = Object.values(P).map(p => `<span title="${p.nm}"><i style="background:${p.c}"></i>${p.ic}</span>`).join('') + '<span title="Capital">⭐</span>';
+</script>
+</body>
+</html>
